@@ -69,4 +69,14 @@ class RecordDao extends DatabaseAccessor<AppDatabase> with _$RecordDaoMixin {
     final records = await getRecordsByMonth(month);
     return records.fold<double>(0, (sum, r) => sum + r.price);
   }
+
+  /// 用给定数据替换全部记录（传空列表即清空）
+  Future<void> replaceAll(List<RecordsCompanion> entries) async {
+    await transaction(() async {
+      await delete(records).go();
+      if (entries.isNotEmpty) {
+        await batch((b) => b.insertAll(records, entries));
+      }
+    });
+  }
 }

@@ -6,18 +6,43 @@ class StatsService {
 
   StatsService(this._db);
 
-  /// 获取指定天数内的每日消费
+  /// 获取指定天数内的每日消费（按日期升序）
   Future<List<DailySpending>> getDailySpending(int days) async {
     final records = await _db.recordDao.getRecentRecords(days);
-    final dailyMap = <String, double>{};
+    final dailyTotals = <DateTime, double>{};
 
     for (final record in records) {
-      final key = '${record.mealTime.month}/${record.mealTime.day}';
-      dailyMap[key] = (dailyMap[key] ?? 0) + record.price;
+      final day = DateTime(
+        record.mealTime.year,
+        record.mealTime.month,
+        record.mealTime.day,
+      );
+      dailyTotals[day] = (dailyTotals[day] ?? 0) + record.price;
     }
 
-    return dailyMap.entries
-        .map((e) => DailySpending(date: e.key, amount: e.value))
+    final sortedDays = dailyTotals.keys.toList()..sort();
+    return sortedDays
+        .map((day) => DailySpending(day: day, amount: dailyTotals[day]!))
+        .toList();
+  }
+
+  /// 获取点餐频次（不超过7天按日聚合，超过7天按自然周聚合）
+  Future<List<FrequencyBucket>> getFrequencyStats(int days) async {
+    final records = await _db.recordDao.getRecentRecords(days);
+    final counts = <DateTime, int>{};
+
+    for (final record in records) {
+      final start = _bucketStart(record.mealTime, days);
+      counts[start] = (counts[start] ?? 0) + 1;
+    }
+
+    final sortedStarts = counts.keys.toList()..sort();
+    return sortedStarts
+        .map((start) => FrequencyBucket(
+              start: start,
+              end: _bucketEnd(start, days),
+              count: counts[start]!,
+            ))
         .toList();
   }
 
@@ -44,6 +69,7 @@ class StatsService {
       final tag = tagMap[entry.key];
       if (tag != null) {
         distributions.add(TagDistribution(
+          tagId: tag.id,
           tagName: tag.name,
           count: entry.value,
           ratio: total > 0 ? entry.value / total : 0,
@@ -55,19 +81,19 @@ class StatsService {
     return distributions;
   }
 
-  /// 获取每周点餐频次
-  Future<List<WeeklyFrequency>> getWeeklyFrequency(int weeks) async {
-    final days = weeks * 7;
+  /// 获取指定标签在时间范围内的记录
+  Future<List<Record>> getRecordsByTag(int tagId, int days) async {
     final records = await _db.recordDao.getRecentRecords(days);
-    final weekMap = <int, int>{};
+    return records
+        .where((r) => _parseTagIds(r.tagIds).contains(tagId))
+        .toList();
+  }
 
-    for (final record in records) {
-      final weekNum = _getWeekNumber(record.mealTime);
-      weekMap[weekNum] = (weekMap[weekNum] ?? 0) + 1;
-    }
-
-    return weekMap.entries
-        .map((e) => WeeklyFrequency(week: '第${e.key}周', count: e.value))
+  /// 获取指定时间区间内的记录（含起点，不含终点）
+  Future<List<Record>> getRecordsInRange(DateTime start, DateTime end) async {
+    final records = await _db.recordDao.getAllRecords();
+    return records
+        .where((r) => !r.mealTime.isBefore(start) && r.mealTime.isBefore(end))
         .toList();
   }
 
@@ -80,6 +106,18 @@ class StatsService {
       totalSpent: totalSpent,
       avgPerMeal: records.isNotEmpty ? totalSpent / records.length : 0,
     );
+  }
+
+  /// 时间桶起点：不超过7天按天，超过7天按自然周（周一为起点）
+  DateTime _bucketStart(DateTime time, int days) {
+    final date = DateTime(time.year, time.month, time.day);
+    if (days <= 7) return date;
+    return date.subtract(Duration(days: date.weekday - 1));
+  }
+
+  /// 时间桶终点（不含）
+  DateTime _bucketEnd(DateTime start, int days) {
+    return start.add(Duration(days: days <= 7 ? 1 : 7));
   }
 
   List<int> _parseTagIds(String tagIdsJson) {
@@ -95,41 +133,42 @@ class StatsService {
       return [];
     }
   }
-
-  int _getWeekNumber(DateTime date) {
-    final firstDay = DateTime(date.year, 1, 1);
-    final daysDiff = date.difference(firstDay).inDays;
-    return (daysDiff / 7).ceil();
-  }
 }
 
 /// 每日消费
 class DailySpending {
-  final String date;
+  final DateTime day;
   final double amount;
 
-  const DailySpending({required this.date, required this.amount});
+  const DailySpending({required this.day, required this.amount});
 }
 
 /// 标签分布
 class TagDistribution {
+  final int tagId;
   final String tagName;
   final int count;
   final double ratio;
 
   const TagDistribution({
+    required this.tagId,
     required this.tagName,
     required this.count,
     required this.ratio,
   });
 }
 
-/// 每周频次
-class WeeklyFrequency {
-  final String week;
+/// 点餐频次时间桶
+class FrequencyBucket {
+  final DateTime start;
+  final DateTime end;
   final int count;
 
-  const WeeklyFrequency({required this.week, required this.count});
+  const FrequencyBucket({
+    required this.start,
+    required this.end,
+    required this.count,
+  });
 }
 
 /// 统计摘要

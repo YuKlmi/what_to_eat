@@ -19,6 +19,9 @@ part 'app_database.g.dart';
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
+  /// 供测试注入自定义执行器（例如内存数据库）
+  AppDatabase.forTesting(super.e);
+
   @override
   int get schemaVersion => 1;
 
@@ -27,7 +30,27 @@ class AppDatabase extends _$AppDatabase {
         onCreate: (Migrator m) async {
           await m.createAll();
         },
+        onUpgrade: (Migrator m, int from, int to) async {
+          // 逐级迁移，不允许跳级
+          for (var version = from + 1; version <= to; version++) {
+            await applyMigrationStep(m, version);
+          }
+        },
       );
+}
+
+/// 按 schema 版本号执行迁移步骤。
+///
+/// 修改表结构时：把 [AppDatabase.schemaVersion] 加 1，并在此新增对应 case。
+/// 未登记的版本会抛 [StateError]，避免静默跳级导致数据损坏。
+Future<void> applyMigrationStep(Migrator m, int version) async {
+  switch (version) {
+    case 1:
+      // 初始版本，无迁移动作
+      break;
+    default:
+      throw StateError('缺少 schema 版本 $version 的迁移步骤');
+  }
 }
 
 LazyDatabase _openConnection() {

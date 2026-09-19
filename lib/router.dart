@@ -7,6 +7,7 @@ import 'screens/stats_screen.dart';
 import 'screens/favorites_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/budget_screen.dart';
+import 'screens/backup_screen.dart';
 import 'widgets/scaffold_with_nav_bar.dart';
 
 final goRouter = GoRouter(
@@ -51,7 +52,10 @@ final goRouter = GoRouter(
     ),
     GoRoute(
       path: '/records/new',
-      builder: (context, state) => const RecordFormScreen(),
+      builder: (context, state) => RecordFormScreen(
+        initialShopName: state.uri.queryParameters['shop'],
+        initialDishName: state.uri.queryParameters['dish'],
+      ),
     ),
     GoRoute(
       path: '/records/edit/:id',
@@ -67,6 +71,10 @@ final goRouter = GoRouter(
     GoRoute(
       path: '/budget',
       builder: (context, state) => const BudgetScreen(),
+    ),
+    GoRoute(
+      path: '/backup',
+      builder: (context, state) => const BackupScreen(),
     ),
   ],
 );

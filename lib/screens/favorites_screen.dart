@@ -1,8 +1,38 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 import '../database/database_provider.dart';
 import '../database/app_database.dart';
+
+/// 单个店铺的消费统计
+class _ShopStat {
+  final int count;
+  final DateTime lastMealTime;
+
+  const _ShopStat({required this.count, required this.lastMealTime});
+}
+
+/// 按店铺名聚合记录，得到消费单数与最近用餐时间
+Map<String, _ShopStat> _buildShopStats(List<Record> records) {
+  final counts = <String, int>{};
+  final lastTimes = <String, DateTime>{};
+
+  for (final record in records) {
+    counts[record.shopName] = (counts[record.shopName] ?? 0) + 1;
+    final prev = lastTimes[record.shopName];
+    if (prev == null || record.mealTime.isAfter(prev)) {
+      lastTimes[record.shopName] = record.mealTime;
+    }
+  }
+
+  return counts.map(
+    (name, count) => MapEntry(
+      name,
+      _ShopStat(count: count, lastMealTime: lastTimes[name]!),
+    ),
+  );
+}
 
 class FavoritesScreen extends ConsumerStatefulWidget {
   const FavoritesScreen({super.key});
@@ -44,12 +74,12 @@ class _FavoritesScreenState extends ConsumerState<FavoritesScreen> {
       ),
       body: StreamBuilder<List<Shop>>(
         stream: db.shopDao.watchFavoriteShops(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
+        builder: (context, shopSnapshot) {
+          if (shopSnapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
 
-          var shops = snapshot.data ?? [];
+          var shops = shopSnapshot.data ?? [];
 
           // 搜索过滤
           if (_searchQuery.isNotEmpty) {
@@ -73,7 +103,7 @@ class _FavoritesScreenState extends ConsumerState<FavoritesScreen> {
                   if (_searchQuery.isEmpty) ...[
                     const SizedBox(height: 8),
                     Text(
-                      '记录外卖时可添加收藏',
+                      '记录外卖时勾选「收藏此店铺」即可添加',
                       style: TextStyle(color: Colors.grey[500]),
                     ),
                   ],
@@ -82,11 +112,18 @@ class _FavoritesScreenState extends ConsumerState<FavoritesScreen> {
             );
           }
 
-          return ListView.builder(
-            itemCount: shops.length,
-            itemBuilder: (context, index) {
-              final shop = shops[index];
-              return _ShopTile(shop: shop);
+          return StreamBuilder<List<Record>>(
+            stream: db.recordDao.watchAllRecords(),
+            builder: (context, recordSnapshot) {
+              final stats = _buildShopStats(recordSnapshot.data ?? []);
+
+              return ListView.builder(
+                itemCount: shops.length,
+                itemBuilder: (context, index) {
+                  final shop = shops[index];
+                  return _ShopTile(shop: shop, stat: stats[shop.name]);
+                },
+              );
             },
           );
         },
@@ -97,12 +134,17 @@ class _FavoritesScreenState extends ConsumerState<FavoritesScreen> {
 
 class _ShopTile extends ConsumerWidget {
   final Shop shop;
+  final _ShopStat? stat;
 
-  const _ShopTile({required this.shop});
+  const _ShopTile({required this.shop, this.stat});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final db = ref.watch(appDatabaseProvider);
+    final stat = this.stat;
+    final subtitle = stat == null
+        ? '暂无消费记录'
+        : '共 ${stat.count} 单 · 最近 ${DateFormat('MM/dd').format(stat.lastMealTime)}';
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -111,20 +153,27 @@ class _ShopTile extends ConsumerWidget {
           child: Text(shop.name.isNotEmpty ? shop.name[0] : '?'),
         ),
         title: Text(shop.name),
+        subtitle: Text(subtitle),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             IconButton(
               icon: const Icon(Icons.favorite, color: Colors.red),
+              tooltip: '取消收藏',
               onPressed: () => db.shopDao.toggleFavorite(shop.id),
             ),
             IconButton(
               icon: const Icon(Icons.add_circle_outline),
-              onPressed: () => context.push('/records/new'),
+              tooltip: '记录一餐',
+              onPressed: () => context.push(
+                '/records/new?shop=${Uri.encodeComponent(shop.name)}',
+              ),
             ),
           ],
         ),
-        onTap: () => context.push('/records/new'),
+        onTap: () => context.push(
+          '/records/new?shop=${Uri.encodeComponent(shop.name)}',
+        ),
       ),
     );
   }

@@ -30,6 +30,26 @@ class ShopDao extends DatabaseAccessor<AppDatabase> with _$ShopDaoMixin {
   Future<List<Shop>> searchShops(String keyword) =>
       (select(shops)..where((s) => s.name.like('%$keyword%'))).get();
 
+  /// 根据名称获取店铺
+  Future<Shop?> getShopByName(String name) =>
+      (select(shops)..where((s) => s.name.equals(name))).getSingleOrNull();
+
+  /// 收藏店铺（不存在则新建，已存在则置为已收藏）
+  Future<void> favoriteShop(String name) async {
+    final existing = await getShopByName(name);
+    if (existing == null) {
+      await insertShop(ShopsCompanion(
+        name: Value(name),
+        isFavorite: const Value(true),
+      ));
+    } else if (!existing.isFavorite) {
+      await updateShop(ShopsCompanion(
+        id: Value(existing.id),
+        isFavorite: const Value(true),
+      ));
+    }
+  }
+
   /// 插入店铺
   Future<int> insertShop(ShopsCompanion entry) => into(shops).insert(entry);
 
@@ -53,4 +73,14 @@ class ShopDao extends DatabaseAccessor<AppDatabase> with _$ShopDaoMixin {
   /// 删除店铺
   Future<int> deleteShop(int id) =>
       (delete(shops)..where((s) => s.id.equals(id))).go();
+
+  /// 用给定数据替换全部店铺（传空列表即清空）
+  Future<void> replaceAll(List<ShopsCompanion> entries) async {
+    await transaction(() async {
+      await delete(shops).go();
+      if (entries.isNotEmpty) {
+        await batch((b) => b.insertAll(shops, entries));
+      }
+    });
+  }
 }

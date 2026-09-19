@@ -55,6 +55,8 @@ dev_dependencies:
   # drift 代码生成
   drift_dev: ^2.22.1
   build_runner: ^2.4.0
+  # 测试中打开内存数据库
+  sqlite3: ^2.9.0
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

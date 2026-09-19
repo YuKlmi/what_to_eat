@@ -74,6 +74,28 @@ class RecommendationService {
     return Recommendation(tag: tag, reason: reason);
   }
 
+  /// 为指定菜品生成推荐理由
+  Future<String> reasonForDish(String dishName) async {
+    final records = await _db.recordDao.getAllRecords();
+    final matched = records.where((r) => r.dishName == dishName).toList();
+
+    // 均衡尝新：从未点过
+    if (matched.isEmpty) {
+      return '还没点过，换个新口味试试？';
+    }
+
+    matched.sort((a, b) => b.mealTime.compareTo(a.mealTime));
+    final days = DateTime.now().difference(matched.first.mealTime).inDays;
+
+    // 久未食用
+    if (days >= 7) {
+      return '已经 $days 天没吃了，来一份吧！';
+    }
+
+    // 偏好命中
+    return '你最近常点这个，已经点过 ${matched.length} 次';
+  }
+
   /// 加权随机选择
   Tag _weightedRandom(List<Tag> candidates, List<double> weights) {
     final totalWeight = weights.fold(0.0, (a, b) => a + b);

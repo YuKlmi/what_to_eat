@@ -7,7 +7,15 @@ import '../database/app_database.dart';
 
 class RecordFormScreen extends ConsumerStatefulWidget {
   final int? recordId;
-  const RecordFormScreen({super.key, this.recordId});
+  final String? initialShopName;
+  final String? initialDishName;
+
+  const RecordFormScreen({
+    super.key,
+    this.recordId,
+    this.initialShopName,
+    this.initialDishName,
+  });
 
   @override
   ConsumerState<RecordFormScreen> createState() => _RecordFormScreenState();
@@ -22,6 +30,7 @@ class _RecordFormScreenState extends ConsumerState<RecordFormScreen> {
   DateTime _mealTime = DateTime.now();
   List<int> _selectedTagIds = [];
   bool _isLoading = false;
+  bool _isFavorite = false;
 
   bool get isEditing => widget.recordId != null;
 
@@ -30,6 +39,27 @@ class _RecordFormScreenState extends ConsumerState<RecordFormScreen> {
     super.initState();
     if (isEditing) {
       _loadRecord();
+    } else {
+      _shopController.text = widget.initialShopName ?? '';
+      _dishController.text = widget.initialDishName ?? '';
+      _syncFavoriteState();
+    }
+  }
+
+  /// 同步"收藏此店铺"开关状态
+  Future<void> _syncFavoriteState() async {
+    final name = _shopController.text.trim();
+    if (name.isEmpty) {
+      // 避免在 initState 阶段同步触发 setState
+      if (mounted && _isFavorite) {
+        setState(() => _isFavorite = false);
+      }
+      return;
+    }
+    final db = ref.read(appDatabaseProvider);
+    final shop = await db.shopDao.getShopByName(name);
+    if (mounted) {
+      setState(() => _isFavorite = shop?.isFavorite ?? false);
     }
   }
 
@@ -51,6 +81,44 @@ class _RecordFormScreenState extends ConsumerState<RecordFormScreen> {
               .where((s) => s.trim().isNotEmpty)
               .map((s) => int.parse(s.trim())),
         );
+      });
+      await _syncFavoriteState();
+    }
+  }
+
+  /// 从收藏列表快速带出店铺名
+  Future<void> _pickFavoriteShop() async {
+    final db = ref.read(appDatabaseProvider);
+    final shops = await db.shopDao.getFavoriteShops();
+    if (!mounted) return;
+
+    if (shops.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('还没有收藏的店铺，勾选下方"收藏此店铺"即可添加')),
+      );
+      return;
+    }
+
+    final picked = await showModalBottomSheet<Shop>(
+      context: context,
+      builder: (ctx) => ListView(
+        shrinkWrap: true,
+        children: shops
+            .map((s) => ListTile(
+                  leading: CircleAvatar(
+                    child: Text(s.name.isNotEmpty ? s.name[0] : '?'),
+                  ),
+                  title: Text(s.name),
+                  onTap: () => ctx.pop(s),
+                ))
+            .toList(),
+      ),
+    );
+
+    if (picked != null && mounted) {
+      setState(() {
+        _shopController.text = picked.name;
+        _isFavorite = true;
       });
     }
   }
@@ -95,6 +163,12 @@ class _RecordFormScreenState extends ConsumerState<RecordFormScreen> {
           mealTime: drift.Value(_mealTime),
         ),
       );
+    }
+
+    // 同步收藏状态
+    final shopName = _shopController.text.trim();
+    if (_isFavorite && shopName.isNotEmpty) {
+      await db.shopDao.favoriteShop(shopName);
     }
 
     if (mounted) {
@@ -146,14 +220,30 @@ class _RecordFormScreenState extends ConsumerState<RecordFormScreen> {
             // 店铺名称
             TextFormField(
               controller: _shopController,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: '店铺名称 *',
                 hintText: '例如：麦当劳',
-                prefixIcon: Icon(Icons.store),
+                prefixIcon: const Icon(Icons.store),
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.bookmark_outline),
+                  tooltip: '从收藏选择',
+                  onPressed: _pickFavoriteShop,
+                ),
               ),
               validator: (v) => v == null || v.isEmpty ? '请输入店铺名称' : null,
+              onChanged: (_) => _syncFavoriteState(),
             ),
-            const SizedBox(height: 16),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              secondary: const Icon(Icons.favorite),
+              title: const Text('收藏此店铺'),
+              subtitle: const Text('收藏后可在收藏页快速记录'),
+              value: _isFavorite,
+              onChanged: _shopController.text.trim().isEmpty
+                  ? null
+                  : (v) => setState(() => _isFavorite = v),
+            ),
+            const SizedBox(height: 8),
 
             // 菜品名称
             TextFormField(

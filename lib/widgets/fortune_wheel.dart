@@ -150,7 +150,7 @@ class _FortuneWheelState extends State<FortuneWheel>
             ),
           ),
           // 顶部指针
-          Positioned(
+          const Positioned(
             top: 0,
             child: Icon(
               Icons.arrow_drop_down,

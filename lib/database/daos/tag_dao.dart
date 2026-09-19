@@ -42,4 +42,14 @@ class TagDao extends DatabaseAccessor<AppDatabase> with _$TagDaoMixin {
   /// 删除标签
   Future<int> deleteTag(int id) =>
       (delete(tags)..where((t) => t.id.equals(id))).go();
+
+  /// 用给定数据替换全部标签（传空列表即清空）
+  Future<void> replaceAll(List<TagsCompanion> entries) async {
+    await transaction(() async {
+      await delete(tags).go();
+      if (entries.isNotEmpty) {
+        await batch((b) => b.insertAll(tags, entries));
+      }
+    });
+  }
 }

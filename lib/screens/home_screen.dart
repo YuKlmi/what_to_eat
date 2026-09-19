@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../database/database_provider.dart';
+import '../services/service_provider.dart';
 import '../widgets/fortune_wheel.dart';
 
 // 转盘颜色列表
@@ -79,40 +80,51 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       _recommendationText = '推荐：${item.label}';
     });
 
-    if (mounted) {
-      showDialog(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('推荐结果'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.restaurant,
-                  size: 48,
-                  color: Theme.of(context).colorScheme.primary),
-              const SizedBox(height: 16),
-              Text(
-                '今天吃 ${item.label}！',
-                style: Theme.of(context).textTheme.headlineSmall,
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => ctx.pop(),
-              child: const Text('再想想'),
+    final reason = await ref
+        .read(recommendationServiceProvider)
+        .reasonForDish(item.label);
+
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('推荐结果'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.restaurant,
+                size: 48, color: Theme.of(context).colorScheme.primary),
+            const SizedBox(height: 16),
+            Text(
+              '今天吃 ${item.label}！',
+              style: Theme.of(context).textTheme.headlineSmall,
             ),
-            FilledButton(
-              onPressed: () {
-                ctx.pop();
-                context.push('/records/new');
-              },
-              child: const Text('去记录'),
+            const SizedBox(height: 8),
+            Text(
+              reason,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyMedium,
             ),
           ],
         ),
-      );
-    }
+        actions: [
+          TextButton(
+            onPressed: () => ctx.pop(),
+            child: const Text('再想想'),
+          ),
+          FilledButton(
+            onPressed: () {
+              ctx.pop();
+              context.push(
+                '/records/new?dish=${Uri.encodeComponent(item.label)}',
+              );
+            },
+            child: const Text('去记录'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showExcludeDialog() {
@@ -222,7 +234,30 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 8),
+                    // 从收藏导入候选
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        onPressed: () async {
+                          final shops = await ref
+                              .read(appDatabaseProvider)
+                              .shopDao
+                              .getFavoriteShops();
+                          if (!ctx.mounted) return;
+                          setDialogState(() {
+                            for (final shop in shops) {
+                              if (!tempList.contains(shop.name)) {
+                                tempList.add(shop.name);
+                              }
+                            }
+                          });
+                        },
+                        icon: const Icon(Icons.bookmark_add_outlined, size: 18),
+                        label: const Text('导入收藏店铺'),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
                     // 菜品列表
                     if (tempList.isEmpty)
                       const Padding(

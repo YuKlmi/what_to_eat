@@ -55,4 +55,14 @@ class BudgetDao extends DatabaseAccessor<AppDatabase> with _$BudgetDaoMixin {
   /// 删除预算
   Future<int> deleteBudget(int id) =>
       (delete(budgets)..where((b) => b.id.equals(id))).go();
+
+  /// 用给定数据替换全部预算（传空列表即清空）
+  Future<void> replaceAll(List<BudgetsCompanion> entries) async {
+    await transaction(() async {
+      await delete(budgets).go();
+      if (entries.isNotEmpty) {
+        await batch((b) => b.insertAll(budgets, entries));
+      }
+    });
+  }
 }

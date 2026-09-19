@@ -5,6 +5,9 @@ import 'package:intl/intl.dart';
 import '../database/database_provider.dart';
 import '../database/app_database.dart';
 
+/// 记录卡片上的操作项
+enum _TileAction { edit, delete }
+
 class RecordListScreen extends ConsumerWidget {
   const RecordListScreen({super.key});
 
@@ -48,8 +51,7 @@ class RecordListScreen extends ConsumerWidget {
             padding: const EdgeInsets.symmetric(vertical: 8),
             itemCount: records.length,
             itemBuilder: (context, index) {
-              final record = records[index];
-              return _RecordTile(record: record);
+              return _RecordTile(record: records[index], db: db);
             },
           );
         },
@@ -62,15 +64,61 @@ class RecordListScreen extends ConsumerWidget {
   }
 }
 
-class _RecordTile extends ConsumerWidget {
+class _RecordTile extends StatelessWidget {
   final Record record;
+  final AppDatabase db;
 
-  const _RecordTile({required this.record});
+  const _RecordTile({required this.record, required this.db});
+
+  Future<void> _onAction(BuildContext context, _TileAction action) async {
+    switch (action) {
+      case _TileAction.edit:
+        context.push('/records/edit/${record.id}');
+        break;
+      case _TileAction.delete:
+        await _confirmAndDelete(context);
+        break;
+    }
+  }
+
+  /// 二次确认后删除记录，统计页会随数据变更自动刷新
+  Future<void> _confirmAndDelete(BuildContext context) async {
+    // 提前获取，避免异步间隙后再使用 context
+    final messenger = ScaffoldMessenger.of(context);
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('确认删除'),
+        content: Text(
+          '删除后该记录及其在统计中的计入都会被移除，且无法撤销。\n\n'
+          '${record.shopName} · ${record.dishName ?? '未填菜品'} · '
+          '￥${record.price.toStringAsFixed(1)}',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => ctx.pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => ctx.pop(true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    await db.recordDao.deleteRecord(record.id);
+    messenger.showSnackBar(
+      SnackBar(content: Text('已删除「${record.shopName}」的记录')),
+    );
+  }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final dateFormat = DateFormat('MM/dd HH:mm');
-
+  Widget build(BuildContext context) {
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: ListTile(
@@ -78,12 +126,33 @@ class _RecordTile extends ConsumerWidget {
           child: Text(record.shopName.isNotEmpty ? record.shopName[0] : '?'),
         ),
         title: Text(record.shopName),
-        subtitle: Text(
-          '${record.dishName ?? ''} · ￥${record.price.toStringAsFixed(1)}',
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${record.dishName ?? '未填菜品'} · '
+              '￥${record.price.toStringAsFixed(1)}',
+            ),
+            Text(
+              DateFormat('MM/dd HH:mm').format(record.mealTime),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
         ),
-        trailing: Text(
-          dateFormat.format(record.mealTime),
-          style: Theme.of(context).textTheme.bodySmall,
+        isThreeLine: true,
+        trailing: PopupMenuButton<_TileAction>(
+          tooltip: '更多操作',
+          onSelected: (action) => _onAction(context, action),
+          itemBuilder: (ctx) => const [
+            PopupMenuItem(
+              value: _TileAction.edit,
+              child: Text('编辑'),
+            ),
+            PopupMenuItem(
+              value: _TileAction.delete,
+              child: Text('删除'),
+            ),
+          ],
         ),
         onTap: () => context.push('/records/edit/${record.id}'),
       ),
